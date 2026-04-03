@@ -1,0 +1,389 @@
+==================================
+Project - Lunar Lander
+==================================
+
+Background
+
+1. Read this page:
+https://www.gymlibrary.dev/environments/box2d/lunar_lander/
+2. Use play_lunar_lander.py to play the game. The keys w, s, and d allow you to control the lander. The reward is printed on the console. Understand how the game works.
+3. Rename evaluate.bat.txt to evaluate.bat. Then, execute evaluate.bat. It will show how an agent written in my_policy.py plays the game five times. It will also show the average reward obtained by the agent when it plays the game for 100 times. The agent in my_policy.py uses the parameters in best_policy.npy to play the game. The file evaluate_agent.py performs the evaluation.
+4. The file train_agent.py trains the agent by finding the optimized parameters using an evolutionary approach and saves them in best_policy.npy.
+
+
+
+Problem Statement
+
+You need to train an agent to play the Lunar Lander game. You need to submit four files:
+1. my_policy.py that contains your agent. It is a file similar to my_policy.py. An example is policy_2101.py.
+2. best_policy.npy that contains the parameters that your agent uses. It is a file similar to best_policy.npy. An example is best_policy_2101.npy.
+3. train_agent.py that contains the code to train the agent. It is a file similar to train_agent.py. An example is train_agent_2101.py.
+4. A PDF describing your methodology.
+A command similar to the one written in evaluate.bat that uses evaluate_agent.py should be
+able to evaluate your policy_<your group>.py and best_policy_<your group>.npy files. 
+
+
+Evaluation Process
+
+We will evaluate all agents in the classroom using evaluate_agent.py. The team (group) with the highest score will receive the maximum possible score of 10 marks. The marks for the remaining teams will be scaled linearly based on their scores relative to the highest score. Following the evaluation, a viva will be conducted to assess your understanding of the learning
+algorithm, policy mechanism, and methodology used. During this session, you will be required to justify your approach and explain your submitted files. Failure to do so may result in a reduction of marks. Any group member may be asked questions, and all members of a group will receive the same marks. You are encouraged to use any available resources, including language models. There are no restrictions on the choice of policy criteria or learning schemes. For example, you may employ a neural network as an agent and use reinforcement learning to train it. The only constraints are as follows:
+
+1. The agent must be compatible with evaluate_agent.py. 
+2. evaluate_agent.py must execute within 100 seconds.
+3. Each submitted file must not exceed 1 MB in size.
+
+
+================================================================
+Evaluate_agent.py  -- Do not change this file as all other agents trained by the class will be evaluated based on this, this is the standard
+=================================================================
+# Filename: evaluate_agent.py
+
+import gymnasium as gym
+import numpy as np
+import argparse
+import importlib
+
+def evaluate_policy(policy, policy_action, total_episodes=100, render_first=5):
+    total_reward = 0.0
+    for episode in range(total_episodes):
+        # Render the first few episodes
+        render_mode = "human" if episode < render_first else "rgb_array"
+        env = gym.make("LunarLander-v3", render_mode=render_mode)
+        observation, info = env.reset()
+        episode_reward = 0.0
+        done = False
+        while not done:
+            action = policy_action(policy, observation)
+            observation, reward, terminated, truncated, info = env.step(action)
+            episode_reward += reward
+            done = terminated or truncated
+        env.close()
+        total_reward += episode_reward
+    return total_reward / total_episodes
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Evaluate an AI agent for LunarLander-v3 using a provided policy and policy_action function."
+    )
+    parser.add_argument(
+        "--filename", type=str, required=True,
+        help="Path to the .npy file containing the policy parameters."
+    )
+    parser.add_argument(
+        "--policy_module", type=str, required=True,
+        help="The name of the Python module that defines the policy_action function."
+    )
+    args = parser.parse_args()
+
+    # Load the policy parameters from the file.
+    policy = np.load(args.filename)
+    
+    # Dynamically import the module that defines policy_action.
+    try:
+        policy_module = importlib.import_module(args.policy_module)
+    except ImportError as e:
+        print(f"Error importing module {args.policy_module}: {e}")
+        return
+
+    # Verify that the module has a callable policy_action function.
+    if not hasattr(policy_module, "policy_action") or not callable(policy_module.policy_action):
+        print(f"Module {args.policy_module} must define a callable 'policy_action(policy, observation)' function.")
+        return
+    policy_action_func = policy_module.policy_action
+
+    # Evaluate the policy over 100 episodes (first 5 are rendered).
+    average_reward = evaluate_policy(policy, policy_action_func, total_episodes=100, render_first=5)
+    print(f"Average reward over 100 episodes: {average_reward:.2f}")
+
+if __name__ == "__main__":
+    main()
+
+
+=============================================================================
+train_agent.py -- this is the sample file with the base code using the GA, we can change that and adopt new strategy
+=============================================================================
+
+# Filename: train_agent.py
+import gymnasium as gym
+import numpy as np
+import argparse
+import os
+
+def policy_action(params, observation):
+    # The policy is a linear mapping from the 8-dimensional observation to 4 action scores.
+    W = params[:8 * 4].reshape(8, 4)
+    b = params[8 * 4:].reshape(4)
+    logits = np.dot(observation, W) + b
+    return np.argmax(logits)
+
+def evaluate_policy(params, episodes=3, render=False):
+    total_reward = 0.0
+    for _ in range(episodes):
+        env = gym.make('LunarLander-v3', render_mode='human' if render else 'rgb_array')
+        observation, info = env.reset()
+        episode_reward = 0.0
+        done = False
+        while not done:
+            action = policy_action(params, observation)
+            observation, reward, terminated, truncated, info = env.step(action)
+            episode_reward += reward
+            done = terminated or truncated
+        env.close()
+        total_reward += episode_reward
+    return total_reward / episodes
+
+def simulated_binary_crossover(parent1, parent2, eta_c=15):
+    gene_size = parent1.shape[0]
+    child = np.empty(gene_size)
+    for i in range(gene_size):
+        u = np.random.rand()
+        if u <= 0.5:
+            beta = (2 * u) ** (1 / (eta_c + 1))
+        else:
+            beta = (1 / (2 * (1 - u))) ** (1 / (eta_c + 1))
+        child[i] = 0.5 * ((1 + beta) * parent1[i] + (1 - beta) * parent2[i])
+    return child
+
+def polynomial_mutation(child, mutation_rate=0.1, eta_m=20, lower_bound=-5, upper_bound=5):
+    gene_size = child.shape[0]
+    for i in range(gene_size):
+        if np.random.rand() < mutation_rate:
+            x = child[i]
+            # Compute normalized distances from the bounds.
+            delta1 = (x - lower_bound) / (upper_bound - lower_bound)
+            delta2 = (upper_bound - x) / (upper_bound - lower_bound)
+            r = np.random.rand()
+            if r < 0.5:
+                delta_q = (2 * r + (1 - 2 * r) * ((1 - delta1) ** (eta_m + 1))) ** (1 / (eta_m + 1)) - 1
+            else:
+                delta_q = 1 - (2 * (1 - r) + 2 * (r - 0.5) * ((1 - delta2) ** (eta_m + 1))) ** (1 / (eta_m + 1))
+            child[i] = x + delta_q * (upper_bound - lower_bound)
+            # Ensure the gene remains within bounds.
+            child[i] = np.clip(child[i], lower_bound, upper_bound)
+    return child
+
+def genetic_algorithm(population_size=50, num_generations=50, elite_frac=0.2,
+                      mutation_rate=0.1, lower_bound=-5, upper_bound=5):
+    gene_size = 8 * 4 + 4  # 8 inputs x 4 outputs + 4 biases = 36 parameters
+    population = np.random.randn(population_size, gene_size)
+    
+    num_elites = int(population_size * elite_frac)
+    best_reward = -np.inf
+    best_params = None
+
+    for generation in range(num_generations):
+        fitness = np.array([evaluate_policy(individual, episodes=3) for individual in population])
+        elite_indices = fitness.argsort()[::-1][:num_elites]
+        elites = population[elite_indices]
+        
+        if fitness[elite_indices[0]] > best_reward:
+            best_reward = fitness[elite_indices[0]]
+            best_params = population[elite_indices[0]].copy()
+        
+        print(f"Generation {generation+1}: Best Average Reward = {best_reward:.2f}")
+        
+        # Create new population using elitism, simulated binary crossover, and polynomial mutation.
+        new_population = []
+        new_population.extend(elites)
+        while len(new_population) < population_size:
+            parents = elites[np.random.choice(num_elites, 2, replace=False)]
+            child = simulated_binary_crossover(parents[0], parents[1], eta_c=15)
+            child = polynomial_mutation(child, mutation_rate=mutation_rate, eta_m=20,
+                                          lower_bound=lower_bound, upper_bound=upper_bound)
+            new_population.append(child)
+        
+        population = np.array(new_population)
+    
+    return best_params
+
+def train_and_save(filename, population_size=50, num_generations=50, elite_frac=0.2,
+                   mutation_rate=0.1, lower_bound=-5, upper_bound=5):
+    best_params = genetic_algorithm(population_size, num_generations, elite_frac,
+                                    mutation_rate, lower_bound, upper_bound)
+    np.save(filename, best_params)
+    print(f"Best policy saved to {filename}")
+    return best_params
+
+def load_policy(filename):
+    if not os.path.exists(filename):
+        print(f"File {filename} does not exist.")
+        return None
+    best_params = np.load(filename)
+    print(f"Loaded best policy from {filename}")
+    return best_params
+
+def play_policy(best_params, episodes=5):
+    test_reward = evaluate_policy(best_params, episodes=episodes, render=True)
+    print(f"Average reward of the best policy over {episodes} episodes: {test_reward:.2f}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train or play best policy for Lunar Lander using GA with SBX and polynomial mutation.")
+    parser.add_argument("--train", action="store_true", help="Train the policy using GA and save it.")
+    parser.add_argument("--play", action="store_true", help="Load the best policy and play.")
+    parser.add_argument("--filename", type=str, default="best_policy.npy", help="Filename to save/load the best policy.")
+    args = parser.parse_args()
+
+    if args.train:
+        # Train and save the best policy
+        best_params = train_and_save(
+            args.filename,
+            population_size=100,
+            num_generations=100,
+            elite_frac=0.2,
+            mutation_rate=0.1,
+            lower_bound=-5,
+            upper_bound=5
+        )
+    elif args.play:
+        # Load and play with the best policy
+        best_params = load_policy(args.filename)
+        if best_params is not None:
+            play_policy(best_params, episodes=5)
+    else:
+        print("Please specify --train to train and save a policy, or --play to load and play the best policy.")
+
+
+====================================================================
+Play_lunar_lander.py  -- This file is to play lunar lander manually
+====================================================================
+
+# Filename: play_lunar_lander.py
+
+import gymnasium as gym
+import pygame
+import numpy as np
+
+# Initialize Pygame and create a window.
+pygame.init()
+window_width, window_height = 800, 600
+screen = pygame.display.set_mode((window_width, window_height))
+pygame.display.set_caption("Lunar Lander - Human Play")
+
+# Define key-to-action mapping:
+# 'w' -> Fire main engine (action 2)
+# 'a' -> Fire left engine (action 1)
+# 'd' -> Fire right engine (action 3)
+# 's' -> Do nothing (action 0)
+key_to_action = {
+    pygame.K_w: 2,
+    pygame.K_a: 1,
+    pygame.K_d: 3,
+    pygame.K_s: 0
+}
+
+def get_action():
+    """Return the action corresponding to the currently pressed key(s).
+       Defaults to 0 (do nothing) if none of the mapped keys is pressed."""
+    keys = pygame.key.get_pressed()
+    for key, action in key_to_action.items():
+        if keys[key]:
+            return action
+    return 0
+
+# Create the LunarLander-v3 environment with "rgb_array" render_mode.
+env = gym.make("LunarLander-v3", render_mode="rgb_array")
+clock = pygame.time.Clock()
+fps = 30
+
+running = True
+while running:
+    observation, info = env.reset()
+    done = False
+    episode_reward = 0.0
+
+    while not done:
+        # Process quit events.
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                done = True
+
+        # Get action based on pressed keys.
+        action = get_action()
+        observation, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
+        episode_reward += reward
+
+        # Render the frame as an RGB array and convert it to a Pygame surface.
+        frame = env.render()  # rgb_array output
+        frame_surface = pygame.surfarray.make_surface(np.transpose(frame, (1, 0, 2)))
+        # Scale the frame to fill the window.
+        frame_surface = pygame.transform.scale(frame_surface, (window_width, window_height))
+        screen.blit(frame_surface, (0, 0))
+        pygame.display.flip()
+        clock.tick(fps)
+
+    # Episode ended: print the obtained score.
+    print(f"Episode score: {episode_reward:.2f}")
+
+    # Wait for user input to restart or quit.
+    waiting = True
+    print("Press any key to play another episode (press 'Q' to quit)...")
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                waiting = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_q:
+                    running = False
+                waiting = False
+
+env.close()
+pygame.quit()
+
+
+============================================================================
+My_policy.py  -- this is the policy adopted to train the model
+============================================================================
+
+# Filename: my_policy.py
+
+import numpy as np
+
+def policy_action(params, observation):
+    W = params[:32].reshape(8, 4)
+    b = params[32:].reshape(4)
+    logits = np.dot(observation, W) + b
+    return np.argmax(logits)
+
+
+
+============================================================================
+best_policy.npy  -- This is the final file produced after the training, it contains the weights and the bias
+=============================================================================
+
+Filename: best_policy.npy
+
+this file does not open simply as it has some numpy object, so random bit code in notepad.
+To open this file i created a code.py with this code
+
+-----------------------------------------------------------
+import numpy as np
+
+data = np.load("LunerLander/Resources/best_policy.npy")
+
+print(data)          # View contents
+print(type(data))    # Check type
+print(data.shape)    # Check dimensions
+
+------------------------------------------------------------
+
+Output was ---------------- > 
+PS E:\Coding\Projects\AI-ML> python -u "e:\Coding\Projects\AI-ML\LunerLander\Code\code.py"
+[ 0.13573793  1.07101571  0.9933067  -0.34721806 -0.88837357  0.15264185
+ -0.93577177 -0.13473056  0.15930157  2.23758098  1.40766708 -0.0785129
+  2.03779887  2.65090506 -1.17376223 -0.43812479 -2.90674482 -3.00759412
+ -1.48279306  0.82711849  2.19775619  1.29829883  0.12290278  3.39989538
+  1.21587793  0.97394968  1.26054589  1.85066456  3.36844104 -0.64152107
+  0.29426318  0.64595052 -2.90242981 -0.47024788 -1.03818657 -1.22987945]
+<class 'numpy.ndarray'>
+(36,)
+
+using these parameters the agent could score around 270+
+
+
+======================================================================================
+
+Task: I want to train the model using the reinforcement training, You can change the code of the train_agent.py and choose a good strategy, and note the code should be compatible with the evaluate_agent.py, give me the train_agent.py and my_policy.py files, and that should score 320+, keep the terminal printing format same, to maintain uniformity.
+Note: don't include the my_policy.py externally, just make the train code standalone

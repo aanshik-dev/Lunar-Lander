@@ -1,0 +1,27 @@
+Filename: best_policy.npy
+
+this file does not open simply as it has some numpy object, so random bit code in notepad.
+
+To open this file i created a code.py with this code
+
+-----------------------------------------------------------
+import numpy as np
+
+data = np.load("LunerLander/Resources/best_policy.npy")
+
+print(data)          # View contents
+print(type(data))    # Check type
+print(data.shape)    # Check dimensions
+
+------------------------------------------------------------
+
+Output was ---------------- > 
+PS E:\Coding\Projects\AI-ML> python -u "e:\Coding\Projects\AI-ML\LunerLander\Code\code.py"
+[ 0.13573793  1.07101571  0.9933067  -0.34721806 -0.88837357  0.15264185
+ -0.93577177 -0.13473056  0.15930157  2.23758098  1.40766708 -0.0785129
+  2.03779887  2.65090506 -1.17376223 -0.43812479 -2.90674482 -3.00759412
+ -1.48279306  0.82711849  2.19775619  1.29829883  0.12290278  3.39989538
+  1.21587793  0.97394968  1.26054589  1.85066456  3.36844104 -0.64152107
+  0.29426318  0.64595052 -2.90242981 -0.47024788 -1.03818657 -1.22987945]
+<class 'numpy.ndarray'>
+(36,)
